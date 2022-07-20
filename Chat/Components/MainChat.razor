@@ -1,0 +1,123 @@
+﻿@implements IDisposable
+
+<h3>Chat</h3>
+
+@if (_usernames == null || _messages == null)
+{
+    <div class="d-flex flex-column justify-content-center align-items-center w-100 h-100">
+        <div class="spinner-grow text-primary" role="status" style="height: 100px; width: 100px;">
+          <span class="sr-only">Loading...</span>
+        </div>
+    </div>
+}
+else
+{
+    <div class="mb-3">
+        @foreach (var username in _usernames)
+        {
+            <span class="badge bg-info" style="margin-left: 5px;">@username</span>
+        }
+    </div>
+
+    <div class="row align-items-center" style="width: 400px">
+        <div class="col" style="padding-right: 0">
+            <input @bind="@_username" disabled="@_isConnected" class="form-control" placeholder="Enter username">
+        </div>
+
+        <div class="col">
+            <button disabled="@_isConnected" class="btn btn-success" style="width: 100px;" @onclick="@Connect">Join</button>
+        </div>
+    </div>
+
+    @if (_isConnected)
+    {
+        <div class="mt-4" style="width: 50%;">
+            <form onsubmit="@SendMessage">
+                <div class="d-flex flex-column">
+                    <div style="border: 1px solid; height: 300px; overflow: auto;">
+                        @foreach (var (sender, text) in _messages)
+                        {
+                            <p><span style="font-weight: bold;">@(sender):</span> @text</p>
+                        }
+                    </div>
+                    <input @bind="@_text" class="form-control mt-1"/>
+                </div>
+                <button type="submit" class="btn btn-success mt-1">Send</button>
+             </form>
+        </div>
+    }
+}
+
+@code {
+
+    [Inject] public IServerNotifier ServerNotifier { get; set; }
+    [Inject] public IUserService UserService { get; set; }
+    [Inject] public IChatService ChatService { get; set; }
+
+    private List<Message> _messages;
+    private List<string> _usernames;
+    private bool _isConnected;
+
+    private string _username;
+    private string _text;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _messages = (await ChatService.GetMessages()).ToList();
+        _usernames = (await UserService.GetUsernames()).ToList();
+
+        UserService.OnUserConnected += OnUserConnected;
+        UserService.OnUserDisconnected += OnUserDisconnected;
+        ChatService.MessageReceived += OnMessageReceived;
+    }
+
+    private async Task Connect()
+    {
+        await ServerNotifier.InitializeConnection(_username);
+        _isConnected = true;
+        
+        StateHasChanged();
+    }
+
+    private async Task SendMessage()
+    {
+        await ChatService.SendMessage(new Message(_username, _text));
+        _text = null;
+    }
+
+    private void OnMessageReceived(object sender, Message message)
+    {
+        InvokeAsync(() =>
+        {
+            _messages.Add(message);
+            StateHasChanged();
+        });
+    }
+
+    private void OnUserConnected(object sender, string username)
+    {
+        InvokeAsync(() =>
+        {
+            _usernames.Add(username);
+            StateHasChanged();
+        });
+    }
+    
+    private void OnUserDisconnected(object sender, string username)
+    {
+        InvokeAsync(() =>
+        {
+            _usernames.Remove(username);
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        UserService.OnUserConnected -= OnUserConnected;
+        UserService.OnUserDisconnected -= OnUserDisconnected;
+        ChatService.MessageReceived -= OnMessageReceived;
+        
+        ServerNotifier.CloseConnection();
+    }
+}
